@@ -1,0 +1,9 @@
+dash>=2.17.0
+dash-bootstrap-components>=1.6.0
+dash-cytoscape>=1.0.1
+dash-table>=5.0.0
+pandas>=2.2.2
+dash-resizable-panels>=0.1.0
+
+
+
