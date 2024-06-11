@@ -1,15 +1,18 @@
 
 body {
-    margin: 0;
 
-    /*background: linear-gradient(to bottom, #77a9e2 0%, #558ab3 100%);*/
-
-    /* color: lightgray; */
+    /* margin: 0; */
 }
 
 .container {
     height: 100vh;
 }
+
+.btn {
+    margin-right: 5px;
+}
+
+/* these are named opposite, need to adjust code */
 
 .resize-handle-horizontal {
     width: 5px;
@@ -27,12 +30,3 @@ body {
     background-color: gray;
 }
 
-/*
-[data-panel] {
-    font-size: 50px;
-    font-family: sans-serif;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-}
-*/
