@@ -164,6 +164,9 @@ dbc.Modal(
                                             dcc.Tab(label='Selection', children=[
                                                 html.Div("Show details of selected items.")
                                             ]),
+                                            dcc.Tab(label='Generate', children=[
+                                                html.Div("Generate graph elements from Documents.")
+                                            ]),
                                             dcc.Tab(label='Connection', children=[
                                                 html.Div("Connect to a database.")
                                             ])
