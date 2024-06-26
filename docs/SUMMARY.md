@@ -1,14 +1,15 @@
 # Table of contents
 
 * [KGraph Nexus](README.md)
-* [A.I. Agents](a.i.-agents.md)
-* [Agent Ecosystem](agent-ecosystem.md)
 * [Features](features/README.md)
   * [Visualization](features/visualization.md)
   * [Data Integration](features/data-integration.md)
   * [Knowledge Generation](features/knowledge-generation.md)
+* [Agent Ecosystem](agent-ecosystem.md)
+* [A.I. Agents](a.i.-agents.md)
 * [Knowledge Extraction](knowledge-extraction.md)
 * [Desktop Applications](desktop-applications/README.md)
+  * [Electron Application](desktop-applications/electron-application.md)
   * [Mac Application](desktop-applications/mac-application.md)
   * [Windows Application](desktop-applications/windows-application.md)
   * [Linux Application](desktop-applications/linux-application.md)
