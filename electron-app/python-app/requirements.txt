@@ -4,6 +4,8 @@ dash-cytoscape>=1.0.1
 dash-table>=5.0.0
 pandas>=2.2.2
 dash-resizable-panels>=0.1.0
+pyinstaller==6.8.0
+
 
 
 

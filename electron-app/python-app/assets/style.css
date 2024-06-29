@@ -30,3 +30,13 @@ body {
     background-color: gray;
 }
 
+
+.search-bar {
+    width: 100%;
+}
+
+.rotate-180 {
+    transform: rotate(180deg);
+    display: inline-block;
+}
+

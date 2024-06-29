@@ -1,0 +1,66 @@
+{
+  "name": "kgraph-nexus",
+  "author": "Marc Hadfield",
+  "productName": "KGraphNexus",
+  "version": "0.2.1",
+  "description": "KGraph Nexus App",
+  "main": "src/main.js",
+  "scripts": {
+    "clean": "rm -rf dist",
+    "start": "electron .",
+    "build-python": "MAKE_CMD=$(if [ \"$(shell gmake --version 2>/dev/null)\" != \"\" ]; then echo gmake; else echo make; fi) && $MAKE_CMD build-python",
+    "pack": "node -r dotenv/config node_modules/.bin/electron-builder --dir",
+    "dist": "node -r dotenv/config node_modules/.bin/electron-builder",
+    "notarize": "node -r dotenv/config node_modules/.bin/electron-builder --publish never --mac --arm64"
+  },
+  "dependencies": {
+    "jsonfile": "^6.1.0",
+    "lodash": "4",
+    "mkdirp": "^3.0.1",
+    "ws": "^8.16.0"
+  },
+  "devDependencies": {
+    "@electron-forge/cli": "6.0.0-beta.61",
+    "@electron/notarize": "^2.3.2",
+    "dotenv": "^16.4.5",
+    "electron": "29.2.0",
+    "electron-builder": "24.13.3",
+    "eslint": "8.57.0"
+  },
+  "electronPackagerConfig": {
+    "executableName": "KGraphNexus"
+  },
+  "build": {
+    "appId": "ai.vital.kgraphnexus",
+    "mac": {
+      "target": ["dmg", "zip"],
+      "category": "public.app-category.utilities",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "extendInfo": {
+        "CFBundleDisplayName": "KGraphNexus",
+        "CFBundleName": "KGraphNexus"
+      },
+      "notarize": {
+        "teamId": "4F86FWEWTS"
+      }
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "icon.ico"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "icon": "icons"
+    },
+  "extraResources": [
+      {
+        "from": "./python-app/dist/app",
+        "to": "python-app"
+      }
+    ]
+  }
+}
