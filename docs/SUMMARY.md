@@ -13,6 +13,7 @@
   * [Mac Application](desktop-applications/mac-application.md)
   * [Windows Application](desktop-applications/windows-application.md)
   * [Linux Application](desktop-applications/linux-application.md)
+* [Web Application](web-application.md)
 * [Examples](examples/README.md)
   * [Example 1](examples/example-1.md)
   * [Example 2](examples/example-2.md)
