@@ -1,0 +1,59 @@
+
+vitalservice:
+  - name: example_service_1
+    graph_database:
+      username: "user1"
+      password: "pass1"
+      endpoint: "http://example.com/graphdb"
+      database_type: "virtuoso"
+      connection_type: "rest"
+    vector_database:
+      endpoint: "http://example.com/vectordb"
+      vector_endpoint: ""
+      grpc_endpoint: "localhost"
+      api_key: "apikey1"
+      vector_database_type: "weaviate"
+      embedding_models:
+        - id: model_1
+          endpoint: https://example.com/api/endpoint_1
+          api_key: your_api_key_1
+        - id: model_2
+          endpoint: https://example.com/api/endpoint_2
+          api_key: your_api_key_2
+  - name: example_service_2
+    graph_database:
+      username: "user2"
+      password: "pass2"
+      endpoint: "http://example.com/anothergraphdb"
+      database_type: "fuseki"
+  - name: example_service_3
+    vector_database:
+      endpoint: "http://example.com/othervectordb"
+      api_key: "apikey2"
+      vector_database_type: "weaviate"
+      namespace: "namespace"
+      embedding_models:
+        - id: model_1
+          endpoint: https://example.com/api/endpoint_1
+          api_key: your_api_key_1
+        - id: model_2
+          endpoint: https://example.com/api/endpoint_2
+          api_key: your_api_key_2
+      collections:
+        - class_uri: urn:KGEntity
+          embedding_models:
+            - value: model_1
+            - type: model_2
+        - class_uri: urn:KGSlot
+          embedding_models:
+            - value: model_3
+            - type: model_1
+        - class_uri: urn:KGFrame
+          embedding_models:
+            - value: model_2
+            - type: model_3
+        - class_uri: urn:Edge_hasKGRelation
+          embedding_models:
+            - value: model_2
+            - type: model_3
+

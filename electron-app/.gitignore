@@ -9,3 +9,4 @@ python-app/dist/*
 python-app/build/*
 
 
+**/*.yaml

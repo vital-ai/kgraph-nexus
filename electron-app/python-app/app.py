@@ -1,52 +1,71 @@
+from gevent import monkey
+monkey.patch_all()
+
 import logging
+import threading
 import time
 import os
-import sys
+
+import logging
+logging.basicConfig(level=logging.DEBUG)
+
+from flask import Flask
+from kgraphservice.kgraph_service import KGraphService
+from vital_ai_vitalsigns.service.graph.virtuoso_service import VirtuosoGraphService
+from vital_ai_vitalsigns.service.vital_service import VitalService
+from vital_ai_vitalsigns.vitalsigns import VitalSigns
+from header import create_header
+from search_modal import create_modal
+from graph import create_graph_list
+from tab_panel import create_tabs
+from data_table import create_data_table
+import dash
+from dash import html
+from dash import dcc
+from dash_resizable_panels import PanelGroup, Panel, PanelResizeHandle
+import pandas as pd
+from callbacks import register_callbacks
+from routes import register_routes
+from utils import ConfigUtils
+from dash import Input, Output
+from dash_socketio import DashSocketIO
+from flask_socketio import SocketIO, emit
+from gevent.pywsgi import WSGIServer
+from geventwebsocket.handler import WebSocketHandler
 
 
 start_time = time.time()
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
 def resource_path(relative_path):
-    """ Get the absolute path to the resource, works for PyInstaller onefile """
-    try:
-        # PyInstaller creates a temp folder and stores path in _MEIPASS
-        base_path = sys._MEIPASS
-    except Exception:
-        base_path = os.path.abspath(".")
-
+    # base_path = os.path.dirname(os.path.abspath(__file__))
+    base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
 
 
 bootstrap_icons_path = resource_path('assets/bootstrap-icons.min.css')
 bootstrap_css_path = resource_path('assets/bootstrap.min.css')
 
+# this is for the context menu
+cytoscape_css_path = resource_path('assets/cytoscape-context-menus.css')
+
 
 logger.info("App Before Imports in %s seconds", time.time() - start_time)
-
-import flask
-from flask import request, jsonify
-import dash
-from dash import html
-from dash import dcc
-from dash import dash_table
-import dash_cytoscape as cyto
-from dash_resizable_panels import PanelGroup, Panel, PanelResizeHandle
-import pandas as pd
-import dash_bootstrap_components as dbc
-from dash.dependencies import Input, Output, State
 
 logger.info("App Imports in %s seconds", time.time() - start_time)
 
 # this didn't work
 # import warnings
+
 # warnings.filterwarnings("ignore", category=UserWarning, message="This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.")
 
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR)
+
+app_state = {}
+
 
 # Sample Data for DataTable
 data = {
@@ -54,288 +73,423 @@ data = {
     "Label": ["Node 1", "Node 2", "Edge from Node 1 to Node 2"],
     "Type": ["Node", "Node", "Edge"]
 }
+
 df = pd.DataFrame(data)
 
 logger.info("App Dataframe in %s seconds", time.time() - start_time)
 
-
-search_options = [
-    {"label": "IPhone", "value": "IPhone"},
-    {"label": "Samsung Phone", "value": "Samsung Phone"},
-    {"label": "Google Pixel", "value": "Google Pixel"},
-    {"label": "Phone Case", "value": "Phone Case"},
-]
-
-layout_options = [
-    {"label": "Layout 1", "value": "layout-1"},
-    {"label": "Layout 2", "value": "layout-2"},
-    {"label": "Layout 3", "value": "layout-3"}
-]
-
-# dbc.ButtonGroup(
-# [
-#    dbc.Button("Layout 1", id="layout-1", className="btn btn-primary"),
-#    dbc.Button("Layout 2", id="layout-2", className="btn btn-primary"),
-#    dbc.Button("Layout 3", id="layout-3", className="btn btn-primary"),
-#    dbc.Button("Layout 4", id="layout-4", className="btn btn-primary"),
-#        ],
-#        size="md"
-#    ),
-
-
 # Initialize the Dash app
 app = dash.Dash(__name__, external_stylesheets=[
     # dbc.themes.BOOTSTRAP,
+    # "https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.4.1/font/bootstrap-icons.min.css"
     bootstrap_css_path,
     bootstrap_icons_path,
-    # "https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.4.1/font/bootstrap-icons.min.css"
+    cytoscape_css_path
 ], title="Knowledge Graph Nexus")
 
+app.server.secret_key = "Test!"
 
-# Styles are defined in assets/style.css
+socketio = SocketIO(app.server, async_mode="gevent", logger=True, engineio_logger=True, cors_allowed_origins="*")
+
 app.layout = html.Div(
-    className="container",
     children=[
-        PanelGroup(
-            id="panel-group",
+        dcc.Store(id='session-state', storage_type='session'),
+        dcc.Store(id='session-id', storage_type='session'),
+        html.Div(
+            className="container",
             children=[
-                Panel(
-                    id="panel-1",
-                    style={'position': 'relative', 'zIndex': '1'},
+                html.Button(id='initial-load', style={'display': 'none'}),
+                PanelGroup(
+                    id="panel-group",
                     children=[
-                        dbc.Row(
-                            [
-                                dbc.Col(
-html.Div(
-                    [
-                                    dbc.ButtonGroup(
-                                        [
-                                            dbc.Button(html.I(className="bi bi-save"), id="btn-save", title="Export",
-                                                       className="btn btn-primary"),
-                                            dbc.Button(html.I(className="bi bi-save rotate-180"), id="btn-load",
-                                                       title="Import", className="btn btn-primary"),
-                                            dbc.Button(html.I(className="bi bi-x-circle"), id="btn-new",
-                                                       title="Clear Graph", className="btn btn-primary")
-                                        ],
-                                        size="md"
-                                    )
-                                ],
-
-
-),                                 width="auto"
-                                ),
-dbc.Col(
-                dbc.InputGroup(
-                    [
-                        dbc.Input(id="search-input", placeholder="Search..."),
-                        dbc.Button("Search", id="search-button", n_clicks=0, className="btn btn-primary"),
-                        html.Div([
-                            dbc.Switch(
-                                id="search-type-toggle",
-                                value=True,
-                                className="ms-2"  # Margin start (left margin), adjust as needed
-                            ),
-                            html.Span(id="toggle-label", children="Service", className="ms-2 align-middle")
-                        ], style={'display': 'flex', 'alignItems': 'center'})  # Ensures label and switch are aligned
-
-                    ],
-                    size="md",
-                    className="search-bar"
-                ),
-                width="6",
-            ),
-                            ],
-                            align="center",
-                            className="mb-4"
-                        ),
-                        dbc.Modal(
-                            [
-                                dbc.ModalHeader(dbc.ModalTitle("Search Results")),
-                                dbc.ModalBody(
-                dash_table.DataTable(
-                    id='search-results-table',
-                    columns=[{"name": i, "id": i} for i in df.columns],
-                    data=[],  # Initially empty
-                    style_table={'height': '300px', 'overflowY': 'auto'},
-                    style_cell={'textAlign': 'left'},
-                )
-            ),
-            dbc.ModalFooter(
-                dbc.Button("Close", id="close-modal", className="ms-auto", n_clicks=0)
-            ),
-        ],
-        id="modal",
-        is_open=False,
-        size="lg",  # you can use "sm", "lg", "xl" for different sizes
-    )
-                    ],
-                    defaultSizePercentage=10,
-                    minSizePercentage=10,
-                    collapsible=False
-                ),
-                PanelResizeHandle(html.Div(id="top-resize-bar", className="resize-handle-vertical")),
-
-                Panel(
-                    id="panel-2",
-                    style={'position': 'relative', 'zIndex': '1'},
-                    children=[
-                        PanelGroup(
-                            id="panel-group-2",
+                        Panel(
+                            id="panel-1",
                             style={'position': 'relative', 'zIndex': '1'},
                             children=[
-                                Panel(
-                                    id="panel-graph",
+                                create_header(),
+                                create_modal(df)
+                            ],
+                            defaultSizePercentage=10,
+                            minSizePercentage=10,
+                            collapsible=False
+                        ),
+                        PanelResizeHandle(html.Div(id="top-resize-bar", className="resize-handle-vertical")),
+                        Panel(
+                            id="panel-2",
+                            style={'position': 'relative', 'zIndex': '1'},
+                            children=[
+                                PanelGroup(
+                                    id="panel-group-2",
+                                    style={'position': 'relative', 'zIndex': '1'},
                                     children=[
-                                        cyto.Cytoscape(
-                                            id='cytoscape-graph',
-                                            layout={'name': 'preset'},
-                                            style={'width': '100%', 'height': '100%'},
-                                            elements=[
-                                                {'data': {'id': 'node1', 'label': 'Node 1'}, 'position': {'x': 75, 'y': 75}},
-                                                {'data': {'id': 'node2', 'label': 'Node 2'}, 'position': {'x': 200, 'y': 200}},
-                                                {'data': {'id': 'edge1', 'source': 'node1', 'target': 'node2'}}
-                                            ]
+                                        Panel(
+                                            id="panel-graph",
+                                            children=create_graph_list(),
+                                            style={'position': 'relative', 'zIndex': '1', 'width': '100%', 'height': '100%', 'border': '1px solid black'},
+                                            defaultSizePercentage=50,
+                                            minSizePercentage=10,
+                                            collapsible=False,
+                                            collapsedSizePercentage=0
+                                        ),
+                                        PanelResizeHandle(
+                                            html.Div(className="resize-handle-horizontal")
+                                        ),
+                                        Panel(
+                                            id="panel-tabs",
+                                            children=[
+                                                create_tabs()
+                                            ],
+                                            style={'position': 'relative', 'zIndex': '1', 'width': '100%', 'height': '100%', 'border': '1px solid black'},
+                                            defaultSizePercentage=50,
+                                            minSizePercentage=10,
+                                            collapsible=False,
+                                            collapsedSizePercentage=0
                                         )
                                     ],
-                                    style={'position': 'relative', 'zIndex': '1', 'width': '100%', 'height': '100%', 'border': '1px solid black'},
-                                    defaultSizePercentage=50,
-                                    minSizePercentage=10,
-                                    collapsible=False,
-                                    collapsedSizePercentage=0
-                                ),
-                                PanelResizeHandle(
-                                    html.Div(className="resize-handle-horizontal")
-                                ),
-                                Panel(
-                                    id="panel-tabs",
-                                    children=[
-                                        dcc.Tabs(id='tabs', children=[
-                                            dcc.Tab(label='Palette', selected_style={"fontSize": "12px"}, style={"fontSize": "12px"}, children=[
-                                                html.Div("Drag and drop nodes and edges here.")
-                                            ]),
-                                            dcc.Tab(label='Query', selected_style={"fontSize": "12px"}, style={"fontSize": "12px"}, children=[
-                                                html.Div("Query the database.")
-                                            ]),
-                                            dcc.Tab(label='Selection', selected_style={"fontSize": "12px"}, style={"fontSize": "12px"}, children=[
-                                                html.Div("Show details of selected items.")
-                                            ]),
-                                            dcc.Tab(label='Generate', selected_style={"fontSize": "12px"}, style={"fontSize": "12px"}, children=[
-                                                html.Div("Generate graph elements from Documents.")
-                                            ]),
-                                            dcc.Tab(label='Connection', selected_style={"fontSize": "12px"}, style={"fontSize": "12px"}, children=[
-                                                html.Div("Connect to a database.")
-                                            ])
-                                        ])
-                                    ],
-                                    style={'position': 'relative', 'zIndex': '1', 'width': '100%', 'height': '100%', 'border': '1px solid black'},
-                                    defaultSizePercentage=50,
-                                    minSizePercentage=10,
-                                    collapsible=False,
-                                    collapsedSizePercentage=0
+                                    direction="horizontal"
                                 )
                             ],
-                            direction="horizontal",
+                            minSizePercentage=50,
+                        ),
+                        PanelResizeHandle(html.Div(className="resize-handle-vertical")),
+                        Panel(
+                            id='panel-data-table',
+                            children=[
+                                create_data_table(df)
+                            ],
+                            style={'position': 'relative', 'zIndex': '1', 'width': '100%', 'height': '100%', 'border': '1px solid black'},
+                            defaultSizePercentage=30,
+                            minSizePercentage=20,
+                            collapsible=False,
+                            collapsedSizePercentage=0
                         )
                     ],
-                    minSizePercentage=50,
+                    direction="vertical"
                 ),
-                PanelResizeHandle(html.Div(className="resize-handle-vertical")),
-                Panel(
-                    id='panel-data-table',
-                    children=[
-                        dash_table.DataTable(
-                            id='data-table',
-                            columns=[{"name": i, "id": i} for i in df.columns],
-                            data=df.to_dict('records'),
-                            style_table={'height': '100%', 'overflowY': 'auto'}
-                        )
-                    ],
-                    style={'position': 'relative', 'zIndex': '1', 'width': '100%', 'height': '100%', 'border': '1px solid black'},
-                    defaultSizePercentage=30,
-                    minSizePercentage=20,
-                    collapsible=False,
-                    collapsedSizePercentage=0
-                )
-            ],
-            direction="vertical",
+                html.Div(id="output"),
+                DashSocketIO(id='socketio', eventNames=["notification"])
+            ]
         ),
-        html.Div(id="output")
-    ],
+    ]
 )
 
 
-# Callback to toggle the modal and update the table data
-@app.callback(
-    Output("modal", "is_open"),
-    Output("search-results-table", "data"),
-    [Input("search-button", "n_clicks"), Input("close-modal", "n_clicks")],
-    [dash.dependencies.State("search-input", "value"), dash.dependencies.State("modal", "is_open")],
+@socketio.on("connect")
+def on_connect():
+    print("Client connected")
+
+
+@socketio.on("disconnect")
+def on_disconnect():
+    print("Client disconnected")
+
+
+def notify(socket_id, message):
+    emit(
+        "notification",
+        message,
+        namespace="/",
+        to=socket_id
+    )
+
+
+def background_task(stop_event):
+    while not stop_event.is_set():
+        time.sleep(5)
+        # pass
+
+
+stop_event = threading.Event()
+
+thread = threading.Thread(target=background_task, args=(stop_event,))
+thread.start()
+
+config = ConfigUtils.load_config()
+
+virtuoso_username = config['graph_database']['virtuoso_username']
+virtuoso_password = config['graph_database']['virtuoso_password']
+virtuoso_endpoint = config['graph_database']['virtuoso_endpoint']
+
+vs = VitalSigns()
+
+# vital_service = None
+
+vital_graph_service = VirtuosoGraphService(
+    username=virtuoso_username,
+    password=virtuoso_password,
+    endpoint=virtuoso_endpoint
 )
-def toggle_modal(n_search, n_close, search_value, is_open):
-    if n_search or n_close:
-        if n_search and not is_open:
-            # Ensure search_value is a string
-            if not isinstance(search_value, str):
-                search_value = ""
-            try:
-                # Filter the data based on the search value
-                filtered_data = df[df['Label'].str.contains(search_value, case=False, na=False)].to_dict('records')
-                return not is_open, filtered_data
-            except Exception as e:
-                logger.info(f"Error filtering data: {e}")
-                return not is_open, []
-        return not is_open, []
-    return is_open, []
 
+vital_vector_service = None
 
-@app.callback(
-    Output("toggle-label", "children"),
-    Input("search-type-toggle", "value")
+vital_service = VitalService(
+    graph_service=vital_graph_service,
+    vector_service=vital_vector_service
 )
-def update_label(is_service):
-    return "Service" if is_service else "Local"
 
 
-@app.server.route('/health', methods=['GET'])
-def health_check():
-    return flask.jsonify({'status': 'ok'})
+kgservice = KGraphService(vital_service)
+
+app_state["kgraphservice"] = kgservice
+
+register_callbacks(app)
+register_routes(app)
+
+app.index_string = '''
+<!DOCTYPE html>
+<html>
+    <head>
+        {%metas%}
+        <title>{%title%}</title>
+        {%favicon%}
+        {%css%}
+    </head>
+    <body>
+        {%app_entry%}
+        <script src="/src/cytoscape-context-menus.js" type="module"></script>
+        <script src="/src/index.js" type="module"></script>
+        
+        <script>
+        
+              document.addEventListener('DOMContentLoaded', function () {
+
+                setTimeout(function() {
+                
+              
+            var cytoElement = document.getElementById('cytoscape-graph');
+                
+            var cy = cytoElement._cyreg.cy;
 
 
-# handle adding and removing windows with each window having
-# an in memory graph
-@app.server.route('/graph', methods=['POST'])
-def handle_graph():
-    data = request.get_json()
-    logging.info(f"Received at /graph: {data}")
-    return jsonify({'status': 'ok'})
+        var contextMenu = cy.contextMenus({
+          menuItems: [
+            {
+              id: 'remove',
+              content: 'remove',
+              tooltipText: 'remove',
+              image: {src: "assets/remove.svg", width: 12, height: 12, x: 6, y: 4},
+              selector: 'node, edge',
+              onClickFunction: function (event) {
+                var target = event.target || event.cyTarget;
+                removed = target.remove();
 
+                contextMenu.showMenuItem('undo-last-remove');
+              },
+              hasTrailingDivider: true
+            },
+            {
+              id: 'undo-last-remove',
+              content: 'undo last remove',
+              selector: 'node, edge',
+              show: false,
+              coreAsWell: true,
+              onClickFunction: function (event) {
+                if (removed) {
+                  removed.restore();
+                }
+                contextMenu.hideMenuItem('undo-last-remove');
+              },
+              hasTrailingDivider: true
+            },
+            {
+              id: 'color',
+              content: 'change color',
+              tooltipText: 'change color',
+              selector: 'node',
+              hasTrailingDivider: true,
+              submenu: [
+                {
+                  id: 'color-blue',
+                  content: 'blue',
+                  tooltipText: 'blue',
+                  onClickFunction: function (event) {
+                    let target = event.target || event.cyTarget;
+                    target.style('background-color', 'blue');
+                  },
+                  submenu: [
+                    {
+                      id: 'color-light-blue',
+                      content: 'light blue',
+                      tooltipText: 'light blue',
+                      onClickFunction: function (event) {
+                        let target = event.target || event.cyTarget;
+                        target.style('background-color', 'lightblue');
+                      },
+                    },
+                    {
+                      id: 'color-dark-blue',
+                      content: 'dark blue',
+                      tooltipText: 'dark blue',
+                      onClickFunction: function (event) {
+                        let target = event.target || event.cyTarget;
+                        target.style('background-color', 'darkblue');
+                      },
+                    },
+                  ],
+                },
+                {
+                  id: 'color-green',
+                  content: 'green',
+                  tooltipText: 'green',
+                  onClickFunction: function (event) {
+                    let target = event.target || event.cyTarget;
+                    target.style('background-color', 'green');
+                  },
+                },
+                {
+                  id: 'color-red',
+                  content: 'red',
+                  tooltipText: 'red',
+                  onClickFunction: function (event) {
+                    let target = event.target || event.cyTarget;
+                    target.style('background-color', 'red');
+                  },
+                },
+              ]
+            },
+            {
+              id: 'add-node',
+              content: 'add node',
+              tooltipText: 'add node',
+              image: {src: "assets/add.svg", width: 12, height: 12, x: 6, y: 4},
+              coreAsWell: true,
+              onClickFunction: function (event) {
+                var data = {
+                  group: 'nodes'
+                };
 
-@app.server.route('/query', methods=['POST'])
-def handle_query():
-    data = request.get_json()
-    logging.info(f"Received at /query: {data}")
-    return jsonify({'status': 'ok'})
+                var pos = event.position || event.cyPosition;
 
+                cy.add({
+                  data: data,
+                  position: {
+                    x: pos.x,
+                    y: pos.y
+                  }
+                });
+              }
+            },
+            {
+              id: 'select-all-nodes',
+              content: 'select all nodes',
+              selector: 'node',
+              coreAsWell: true,
+              show: true,
+              onClickFunction: function (event) {
+                selectAllOfTheSameType('node');
 
-@app.server.route('/graph-query', methods=['POST'])
-def handle_graph_query():
-    data = request.get_json()
-    logging.info(f"Received at /graph-query: {data}")
-    return jsonify({'status': 'ok'})
+                contextMenu.hideMenuItem('select-all-nodes');
+                contextMenu.showMenuItem('unselect-all-nodes');
+              }
+            },
+            {
+              id: 'unselect-all-nodes',
+              content: 'unselect all nodes',
+              selector: 'node',
+              coreAsWell: true,
+              show: false,
+              onClickFunction: function (event) {
+                unselectAllOfTheSameType('node');
 
+                contextMenu.showMenuItem('select-all-nodes');
+                contextMenu.hideMenuItem('unselect-all-nodes');
+              }
+            },
+            {
+              id: 'select-all-edges',
+              content: 'select all edges',
+              selector: 'edge',
+              coreAsWell: true,
+              show: true,
+              onClickFunction: function (event) {
+                selectAllOfTheSameType('edge');
 
-@app.server.route('/kgraphgen', methods=['POST'])
-def handle_kgraphgen():
-    data = request.get_json()
-    logging.info(f"Received at /kgraphgen: {data}")
-    return jsonify({'status': 'ok'})
+                contextMenu.hideMenuItem('select-all-edges');
+                contextMenu.showMenuItem('unselect-all-edges');
+              }
+            },
+            {
+              id: 'unselect-all-edges',
+              content: 'unselect all edges',
+              selector: 'edge',
+              coreAsWell: true,
+              show: false,
+              onClickFunction: function (event) {
+                unselectAllOfTheSameType('edge');
 
+                contextMenu.showMenuItem('select-all-edges');
+                contextMenu.hideMenuItem('unselect-all-edges');
+              }
+            }
+          ]
+        });
+        
+        
+          }, 1000);
 
-@app.server.route('/connection', methods=['POST'])
-def handle_connection():
-    data = request.get_json()
-    logging.info(f"Received at /connection: {data}")
-    return jsonify({'status': 'ok'})
+        
+        
+      });
+        
+       
+        </script>
+        
+        
+        
+        <footer>
+            {%config%}
+            {%scripts%}
+            <script>
+            
+                var sessionId;
+
+                document.addEventListener('DOMContentLoaded', function() {
+                    console.log("DOMContentLoaded event triggered");
+
+                    var observer = new MutationObserver(function(mutations, me) {
+                        var initialLoadButton = document.getElementById('initial-load');
+                        if (initialLoadButton) {
+                            console.log("Initial load button found, clicking it");
+                            initialLoadButton.click();
+                            me.disconnect();
+                            setTimeout(checkSessionIdStore, 500); // Check for session-id store after initial load
+                            return;
+                        }
+                    });
+
+                    // Start observing for initial load button
+                    observer.observe(document, {
+                        childList: true,
+                        subtree: true
+                    });
+
+                    function checkSessionIdStore() {
+                        var s = JSON.parse(sessionStorage.getItem('session-id'))
+                        // check to see if this is really set
+                        
+                        sessionId = s;
+                    }
+
+                    function sendSessionId() {
+                        if (sessionId) {
+                            console.log("Sending session ID:", sessionId);
+                            var payload = JSON.stringify({session_id: sessionId});
+                            navigator.sendBeacon("/release_state", payload);
+                        } else {
+                            console.log("Session ID not set, cannot send");
+                        }
+                    }
+
+                    window.addEventListener('beforeunload', sendSessionId);
+                    window.addEventListener('unload', sendSessionId);
+                    
+                });
+            </script>
+            {%renderer%}
+        </footer>
+    </body>
+</html>
+'''
 
 
 if __name__ == '__main__':
@@ -343,5 +497,12 @@ if __name__ == '__main__':
     logger.info("App runtime started in %s seconds", time.time() - start_time)
 
     port = 9000
-    app.run_server(port=port, debug=False, dev_tools_ui=False)
-
+    try:
+        server = app.server
+        http_server = WSGIServer(('0.0.0.0', 9000), server, handler_class=WebSocketHandler)
+        http_server.serve_forever()
+        # app.run_server(port=port, debug=False, dev_tools_ui=False)
+    except KeyboardInterrupt:
+        stop_event.set()
+        thread.join()
+        print("Server stopped gracefully")
