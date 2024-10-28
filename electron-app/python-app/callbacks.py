@@ -5,12 +5,19 @@ import logging
 import uuid
 from datetime import datetime
 import flask
+import kgraphservice
+import networkx as nx
 from dash import dcc, html, Input, Output, State, callback_context
 from dash.exceptions import PreventUpdate
 from flask import request, jsonify
 import pandas as pd
 import dash
 from flask_socketio import SocketIO, emit
+from vital_ai_vitalsigns.model.VITAL_Edge import VITAL_Edge
+from vital_ai_vitalsigns.model.VITAL_Node import VITAL_Node
+
+from kgnexus.kgnexus_manager import KGNexusManager
+
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +38,7 @@ def register_callbacks(app):
     )
     def display_notification(socket_id, message):
         print(f"Message({socket_id}): {message}")
+
 
     @app.callback(
         # Output('output', 'children'),
@@ -145,7 +153,6 @@ def register_callbacks(app):
                 to=socket_id
             )
 
-
             return html.Div([
                 html.H5(filename),
                 html.H6(datetime.fromtimestamp(last_modified))
@@ -185,7 +192,7 @@ def register_callbacks(app):
             raise PreventUpdate
 
         session_id = str(uuid.uuid4())
-        session_data = {'initialized': True, 'value': 42}
+        session_data = {'initialized': True}
         return session_data, session_id
 
     @app.callback(
@@ -205,7 +212,7 @@ def register_callbacks(app):
         logging.info(f"update_output: {session_id} {session_data}")
 
         if session_data and session_id:
-            return f"Session {session_id} initialized: {session_data['initialized']} with value: {session_data['value']}"
+            return f"Session {session_id} initialized: {session_data['initialized']}"
         return "Session not initialized"
 
     @app.callback(
@@ -215,10 +222,106 @@ def register_callbacks(app):
     def update_label(is_service):
         return "Service" if is_service else "Local"
 
+    @app.callback(
+        Output('selected-rows-store', 'data'),
+        Input('search-results-table', 'derived_virtual_selected_rows'),
+        prevent_initial_call=True
+    )
+    def log_selected_rows(selected_rows):
+        print(f"Selected rows: {selected_rows}")
+        return selected_rows
+
+    @app.callback(
+        Output('cytoscape-graph', 'elements', allow_duplicate=True),
+        Input('expand-node-input', 'value'),
+        State('cytoscape-graph', 'elements'),
+        prevent_initial_call=True
+    )
+    def handle_expand_node_click(node_data, current_elements):
+
+        print(f"Expanding node data: {node_data}")
+
+        if node_data is None:
+            return dash.no_update
+
+        try:
+            # node_data = pd.read_json(node_data) if isinstance(node_data, str) else node_data
+            # node_id = node_data.get("node_id")
+            print(f"Expanding node ID: {node_data}")
+
+            node_uri = node_data
+
+            kgraphservice_manager = KGNexusManager(
+                kgraphservice_name="local_kgraphservice",
+            )
+
+            wordnet_graph_uri = 'http://vital.ai/graph/wordnet-frames-graph-1'
+
+            expand_results = kgraphservice_manager.expand(
+                graph_uri=wordnet_graph_uri,
+                node_uri=node_uri,
+                limit=100, offset=0
+            )
+
+            graph_elements = []
+
+            for g in expand_results:
+                if isinstance(g, VITAL_Node):
+                    node = {'data': {'id': str(g.URI), 'label': str(g.name)}, 'position': {'x': 75, 'y': 75}}
+                    graph_elements.append(node)
+                if isinstance(g, VITAL_Edge):
+                    edge = {'data': {'id': str(g.URI), 'source': str(g.edgeSource), 'target': str(g.edgeDestination)}}
+                    graph_elements.append(edge)
+
+            updated_graph = current_elements + graph_elements
+
+            graph = nx.Graph()
+
+            for element in updated_graph:
+                if 'source' not in element['data']:  # it's a node
+                    node_id = element['data']['id']
+                    graph.add_node(node_id)
+
+                # Add edges
+            for element in updated_graph:
+                if 'source' in element['data']:  # it's an edge
+                    source = element['data']['source']
+                    target = element['data']['target']
+                    graph.add_edge(source, target)
+
+            positions = nx.spring_layout(graph, scale=200)
+
+            updated_elements = []
+
+            for element in updated_graph:
+                if 'source' not in element['data']:
+                    node_id = element['data']['id']
+                    pos = positions[node_id]
+                    element['position'] = {'x': pos[0], 'y': pos[1]}
+                updated_elements.append(element)
+
+            return updated_elements
+
+        except Exception as e:
+            logging.error(f"Error handling node click: {e}")
+
+        return current_elements
+
+    # @app.callback(
+    #    Output('expand-node-store', 'data', allow_duplicate=True),
+    #    Input('cytoscape-graph', 'elements'),
+    #    prevent_initial_call=True
+    #)
+    #def clear_expand_node(elements):
+    #    # Clear the clicked-node-store after the elements have been updated
+    #    return None
+
     # Callback to toggle the modal and update the table data
     @app.callback(
         Output("modal", "is_open"),
         Output("search-results-table", "data"),
+        Output("search-results-table", "selected_rows"),
+
         [
             Input("search-button", "n_clicks"),
             Input("search-input", "n_submit"),
@@ -237,7 +340,7 @@ def register_callbacks(app):
         ctx = callback_context
 
         if not ctx.triggered:
-            return is_open, []
+            return is_open, [], []
 
         button_id = ctx.triggered[0]['prop_id'].split('.')[0]
 
@@ -251,26 +354,89 @@ def register_callbacks(app):
 
                 logging.info(f"search service: {toggle_value}, search_value: {search_value}")
 
-                ont_manager = kgservice.get_ontology_query_manager()
+                # ont_manager = kgservice.get_ontology_query_manager()
 
-                ont_results = ont_manager.search_domain_ontology(search_value)
+                # ont_results = ont_manager.search_domain_ontology(search_value)
 
-                filtered_data = [
-                    {'Id': str(result.URI), 'Label': str(result.name), 'Type': 'Node'}
-                    for result in ont_results
-                ]
+                kgraphservice_manager = KGNexusManager(
+                    kgraphservice_name="local_kgraphservice",
+                )
+
+                wordnet_graph_uri = 'http://vital.ai/graph/wordnet-frames-graph-1'
+
+                search_result_list = kgraphservice_manager.search(
+                    graph_uri=wordnet_graph_uri,
+                    search_string=search_value,
+                    limit=100, offset=0
+                )
+
+                filtered_data = []
+
+                for g in search_result_list:
+                    node = {
+                        'Id': str(g.URI),
+                        'Label': str(g.name),
+                        'Type': 'Node'
+                    }
+
+                    filtered_data.append(node)
+
+                # filtered_data = [
+                #    {
+                #        'Id': str(result.URI),
+                #        'Label': str(result.name),
+                #        'Type': 'Node'
+                #    }
+                #    for result in ont_results
+                # ]
 
                 # logger.info(f"Filtered data: {filtered_data}")
 
-                return True, filtered_data
+                return True, filtered_data, []
 
                 # filtered_data = df[df['Label'].str.contains(search_value, case=False, na=False)].to_dict('records')
 
             except Exception as e:
                 logger.info(f"Error filtering data: {e}")
-                return is_open, []
+                return is_open, [], []
 
         if button_id == "close-modal":
-            return False, []
+            return False, [], []
 
-        return is_open, []
+        return is_open, [], []
+
+    @app.callback(
+        Output('cytoscape-graph', 'elements', allow_duplicate=True),
+        Output('graph-elements-store', 'data'),
+        Input('add-to-graph-button', 'n_clicks'),
+        State('selected-rows-store', 'data'),
+        State('search-results-table', 'data'),
+        State('cytoscape-graph', 'elements'),
+        prevent_initial_call=True
+    )
+    def add_nodes_to_graph(n_clicks, selected_rows, table_data, current_elements):
+
+        print(f"Add Nodes for Selected rows: {selected_rows}")
+
+        if n_clicks > 0 and selected_rows:
+
+            selected_nodes = [table_data[row] for row in selected_rows]
+
+            # Check if nodes already exist in the graph
+            existing_node_ids = {element['data']['id'] for element in current_elements if 'data' in element}
+
+            new_nodes = []
+
+            for node in selected_nodes:
+                if node['Id'] not in existing_node_ids:
+                    new_node = {
+                        'data': {'id': node['Id'], 'label': node['Label']},
+                        'position': {'x': 300, 'y': 300}
+                    }
+                    new_nodes.append(new_node)
+
+            updated_elements = current_elements + new_nodes
+
+            return updated_elements, updated_elements
+
+        return current_elements, current_elements

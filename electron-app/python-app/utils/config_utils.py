@@ -25,8 +25,8 @@ class ConfigUtils:
 
         if exists(config_file_path):
             path = config_file_path
-        elif exists("../app_config.yaml"):
-            path = "../app_config.yaml"
+        elif exists("../../app_config.yaml"):
+            path = "../../app_config.yaml"
         else:
             path = "app_config.yaml"
         with open(path, "r") as config_stream:

@@ -10,14 +10,22 @@ def create_modal(df):
             dbc.ModalBody(
                 dash_table.DataTable(
                     id='search-results-table',
-                    columns=[{"name": i, "id": i} for i in df.columns],
-                    data=[],  # Initially empty
+                    columns=[
+                        {"name": i, "id": i} for i in df.columns
+                    ],
+                    data=[],
+                    row_selectable='multi',
                     style_table={'height': '300px', 'overflowY': 'auto'},
                     style_cell={'textAlign': 'left'}
                 )
             ),
             dbc.ModalFooter(
-                dbc.Button("Close", id="close-modal", className="ms-auto", n_clicks=0)
+                html.Div(
+                    [
+                        dbc.Button("Add To Graph", id="add-to-graph-button", className="ms-auto", n_clicks=0),
+                        dbc.Button("Close", id="close-modal", className="ms-auto", n_clicks=0)
+                    ]
+                )
             )
         ],
         id="modal",

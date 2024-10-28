@@ -1,16 +1,15 @@
 from gevent import monkey
+
 monkey.patch_all()
 
-import logging
 import threading
 import time
 import os
+from kgraphservice.kgraph_service import KGraphService
 
 import logging
 logging.basicConfig(level=logging.DEBUG)
 
-from flask import Flask
-from kgraphservice.kgraph_service import KGraphService
 from vital_ai_vitalsigns.service.graph.virtuoso_service import VirtuosoGraphService
 from vital_ai_vitalsigns.service.vital_service import VitalService
 from vital_ai_vitalsigns.vitalsigns import VitalSigns
@@ -19,6 +18,7 @@ from search_modal import create_modal
 from graph import create_graph_list
 from tab_panel import create_tabs
 from data_table import create_data_table
+
 import dash
 from dash import html
 from dash import dcc
@@ -26,13 +26,11 @@ from dash_resizable_panels import PanelGroup, Panel, PanelResizeHandle
 import pandas as pd
 from callbacks import register_callbacks
 from routes import register_routes
-from utils import ConfigUtils
-from dash import Input, Output
 from dash_socketio import DashSocketIO
 from flask_socketio import SocketIO, emit
 from gevent.pywsgi import WSGIServer
 from geventwebsocket.handler import WebSocketHandler
-
+from utils.config_utils import ConfigUtils
 
 start_time = time.time()
 logging.basicConfig(level=logging.INFO)
@@ -50,7 +48,6 @@ bootstrap_css_path = resource_path('assets/bootstrap.min.css')
 
 # this is for the context menu
 cytoscape_css_path = resource_path('assets/cytoscape-context-menus.css')
-
 
 logger.info("App Before Imports in %s seconds", time.time() - start_time)
 
@@ -80,12 +77,14 @@ logger.info("App Dataframe in %s seconds", time.time() - start_time)
 
 # Initialize the Dash app
 app = dash.Dash(__name__, external_stylesheets=[
-    # dbc.themes.BOOTSTRAP,
-    # "https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.4.1/font/bootstrap-icons.min.css"
-    bootstrap_css_path,
-    bootstrap_icons_path,
-    cytoscape_css_path
-], title="Knowledge Graph Nexus")
+        # dbc.themes.BOOTSTRAP,
+        # "https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.4.1/font/bootstrap-icons.min.css"
+        bootstrap_css_path,
+        bootstrap_icons_path,
+        cytoscape_css_path
+    ],
+    suppress_callback_exceptions=True,
+    title="Knowledge Graph Nexus")
 
 app.server.secret_key = "Test!"
 
@@ -95,6 +94,9 @@ app.layout = html.Div(
     children=[
         dcc.Store(id='session-state', storage_type='session'),
         dcc.Store(id='session-id', storage_type='session'),
+        dcc.Store(id='selected-rows-store', data=[]),
+        dcc.Store(id='expand-node-store', data=None),
+
         html.Div(
             className="container",
             children=[
@@ -166,6 +168,7 @@ app.layout = html.Div(
                     ],
                     direction="vertical"
                 ),
+                dcc.Input(id="expand-node-input", type='text', style={'display': 'none'}),
                 html.Div(id="output"),
                 DashSocketIO(id='socketio', eventNames=["notification"])
             ]
@@ -233,6 +236,7 @@ kgservice = KGraphService(vital_service)
 app_state["kgraphservice"] = kgservice
 
 register_callbacks(app)
+
 register_routes(app)
 
 app.index_string = '''
@@ -255,14 +259,61 @@ app.index_string = '''
 
                 setTimeout(function() {
                 
+                    
+                
               
             var cytoElement = document.getElementById('cytoscape-graph');
                 
             var cy = cytoElement._cyreg.cy;
 
+        var selectAllOfTheSameType = function (type) {
+          if (type == 'node') {
+            cy.nodes().select();
+          } else if (type == 'edge') {
+            cy.edges().select();
+          }
+        };
+        
+        var unselectAllOfTheSameType = function (type) {
+          if (type == 'node') {
+            cy.nodes().unselect();
+            ;
+          } else if (type == 'edge') {
+            cy.edges().unselect();
+          }
+        };
 
         var contextMenu = cy.contextMenus({
           menuItems: [
+            
+            {
+              id: 'expand',
+              content: 'expand',
+              tooltipText: 'expand',
+              selector: 'node',
+              onClickFunction: function (event) {
+                
+                var target = event.target || event.cyTarget;
+                var nodeId = target.id();
+
+
+                console.log('target', target);
+                console.log('nodeId', nodeId);
+                
+
+                let expandNodeInput = document.getElementById('expand-node-input');
+                
+                console.log('expandNodeInput', expandNodeInput);
+
+                if (expandNodeInput) {
+                    expandNodeInput.defaultValue = nodeId;
+                    expandNodeInput.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+                
+              },
+              hasTrailingDivider: true
+            },
+          
             {
               id: 'remove',
               content: 'remove',
@@ -378,8 +429,8 @@ app.index_string = '''
               onClickFunction: function (event) {
                 selectAllOfTheSameType('node');
 
-                contextMenu.hideMenuItem('select-all-nodes');
-                contextMenu.showMenuItem('unselect-all-nodes');
+                // contextMenu.hideMenuItem('select-all-nodes');
+                // contextMenu.showMenuItem('unselect-all-nodes');
               }
             },
             {
@@ -391,8 +442,8 @@ app.index_string = '''
               onClickFunction: function (event) {
                 unselectAllOfTheSameType('node');
 
-                contextMenu.showMenuItem('select-all-nodes');
-                contextMenu.hideMenuItem('unselect-all-nodes');
+                // contextMenu.showMenuItem('select-all-nodes');
+                // contextMenu.hideMenuItem('unselect-all-nodes');
               }
             },
             {
@@ -404,8 +455,8 @@ app.index_string = '''
               onClickFunction: function (event) {
                 selectAllOfTheSameType('edge');
 
-                contextMenu.hideMenuItem('select-all-edges');
-                contextMenu.showMenuItem('unselect-all-edges');
+                // contextMenu.hideMenuItem('select-all-edges');
+                // contextMenu.showMenuItem('unselect-all-edges');
               }
             },
             {
@@ -417,8 +468,8 @@ app.index_string = '''
               onClickFunction: function (event) {
                 unselectAllOfTheSameType('edge');
 
-                contextMenu.showMenuItem('select-all-edges');
-                contextMenu.hideMenuItem('unselect-all-edges');
+                // contextMenu.showMenuItem('select-all-edges');
+                // contextMenu.hideMenuItem('unselect-all-edges');
               }
             }
           ]
@@ -497,6 +548,7 @@ if __name__ == '__main__':
     logger.info("App runtime started in %s seconds", time.time() - start_time)
 
     port = 9000
+
     try:
         server = app.server
         http_server = WSGIServer(('0.0.0.0', 9000), server, handler_class=WebSocketHandler)
